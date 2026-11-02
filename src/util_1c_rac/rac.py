@@ -6,6 +6,9 @@ from loguru import logger
 
 from . import base
 
+_NAME_RESOLUTION_ATTEMPTS = 3
+_NAME_RESOLUTION_RETRY_DELAY = 2
+
 
 class InfobaseNotFound(Exception):
     pass
@@ -65,9 +68,28 @@ class Cluster:
             command,
         ]
 
-        output = base.run_command(" ".join(commands), desc)
-
-        return output
+        for attempt in range(1, _NAME_RESOLUTION_ATTEMPTS + 1):
+            try:
+                return base.run_command(" ".join(commands), desc)
+            except ChildProcessError as exc:
+                lines = str(exc).splitlines()
+                endpoint = f"{self.ras_host}:{self.ras_port}".casefold()
+                resolution_failed = any(
+                    lines[i - 1].casefold().endswith("ошибка соединения с сервером")
+                    and lines[i].strip().casefold() == endpoint
+                    and lines[i + 1].strip().casefold() == "no such host is known"
+                    for i in range(1, len(lines) - 1)
+                )
+                if not resolution_failed or attempt == _NAME_RESOLUTION_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "Cannot resolve RAS host {}; retrying in {} seconds (attempt {}/{})",
+                    self.ras_host,
+                    _NAME_RESOLUTION_RETRY_DELAY,
+                    attempt + 1,
+                    _NAME_RESOLUTION_ATTEMPTS,
+                )
+                time.sleep(_NAME_RESOLUTION_RETRY_DELAY)
 
     @staticmethod
     def _process_output(output):
@@ -239,7 +261,7 @@ class Cluster:
 
         for session in sessions:
             if session["session-id"] == str(session_number) or not session_number:
-                command = f'session --cluster={self._cluster_id} terminate --session={session["session"]}'
+                command = f"session --cluster={self._cluster_id} terminate --session={session['session']}"
 
                 try:
                     self._run_command(

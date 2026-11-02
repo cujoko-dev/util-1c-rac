@@ -34,6 +34,14 @@ def get_cluster_by_version(version):
             return cluster
 
 
+def _decode_rac_output(data: bytes) -> str:
+    """Decode modern RAC output while retaining support for older OEM output."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp866")
+
+
 def run_command(command: str, desc: str):
     """Запустить команду"""
 
@@ -41,9 +49,9 @@ def run_command(command: str, desc: str):
         proc = sub.Popen(command, stdout=sub.PIPE, stderr=sub.PIPE)
         outs, errs = proc.communicate()
         if errs:
-            raise ChildProcessError(f'Error {errs.decode("cp866")} when {desc}')
+            raise ChildProcessError(f"Error {_decode_rac_output(errs)} when {desc}")
         else:
-            output = outs.decode("cp866")
+            output = _decode_rac_output(outs)
     except Exception as exc:
         raise exc
 
